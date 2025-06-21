@@ -16,7 +16,7 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
 # --- SETTINGS ---
-MODEL_PATH = "xgboost_model_v20250618_0759.pkl"
+MODEL_PATH = "models/xgboost_model_v20250618_0759.pkl"
 DATA_PATH = "live_data.csv"  # This should be updated with new rows over time
 REFRESH_INTERVAL = 1  # seconds
 
