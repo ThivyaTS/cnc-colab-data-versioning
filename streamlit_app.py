@@ -40,6 +40,10 @@ if df is None or len(df) == 0:
     time.sleep(REFRESH_INTERVAL)
     st.rerun()
 
+# --- SHOW LIVE DATA TABLE ---
+st.subheader("📋 Incoming Live Data")
+st.dataframe(df.tail(10), use_container_width=True)  # Show only the last 10 rows for clarity
+
 # --- SELECT LATEST ROW ---
 latest_row = df.iloc[-1:].copy()
 
