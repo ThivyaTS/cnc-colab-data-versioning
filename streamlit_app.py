@@ -3,18 +3,19 @@ import pandas as pd
 import time
 import joblib
 import os
+import numpy as np
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
-import numpy as np
+from scipy.stats import entropy
 
 # --- SETTINGS ---
 MODEL_PATH = "models/xgboost_model_v20250618_0759.pkl"
-DRIFT_REFERENCE_PATH = "reference_data.csv"
 ANOMALY_MODEL_PATH = "models/isolation_forest_model_v20250621_1222.pkl"
+REFERENCE_PATH = "reference_data.csv"
 DATA_PATH = "live_data.csv"
 PREDICTION_INTERVAL = 5  # seconds
-BATCH_SIZE = 5  # Check drift every 5 rows
+PSI_THRESHOLD = 0.25  # for drift detection
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Tool Condition Monitor", layout="wide")
@@ -23,21 +24,46 @@ st.title("🔧 Real-Time Tool Condition Monitoring Dashboard")
 # --- LOAD MODELS ---
 @st.cache_resource
 def load_models():
-    clf = joblib.load(MODEL_PATH)
-    iso = joblib.load(ANOMALY_MODEL_PATH)
-    return clf, iso
+    clf_model = joblib.load(MODEL_PATH)
+    anomaly_model = joblib.load(ANOMALY_MODEL_PATH)
+    return clf_model, anomaly_model
 
-model, iso_model = load_models()
+model, anomaly_detector = load_models()
 
-# --- LOAD REFERENCE DATA FOR DRIFT ---
+# --- LOAD REFERENCE DATA FOR DRIFT CHECK ---
 @st.cache_data
-def load_reference_data():
-    df_ref = pd.read_csv(DRIFT_REFERENCE_PATH)
-    return df_ref.describe()
+def load_reference():
+    df = pd.read_csv(REFERENCE_PATH)
+    return df.drop(columns=["tool_condition"])
 
-ref_stats = load_reference_data()
+reference_data = load_reference()
+
+# --- PSI DRIFT CHECK ---
+def calculate_psi(expected, actual, buckets=10):
+    breakpoints = np.percentile(expected, np.linspace(0, 100, buckets + 1))
+    expected_counts = np.histogram(expected, bins=breakpoints)[0]
+    actual_counts = np.histogram(actual, bins=breakpoints)[0]
+
+    expected_percents = expected_counts / np.sum(expected_counts)
+    actual_percents = actual_counts / np.sum(actual_counts)
+
+    expected_percents = np.where(expected_percents == 0, 0.0001, expected_percents)
+    actual_percents = np.where(actual_percents == 0, 0.0001, actual_percents)
+
+    psi = np.sum((expected_percents - actual_percents) * np.log(expected_percents / actual_percents))
+    return psi
+
+def is_data_drifted(ref_df, incoming_df):
+    drift_scores = {
+        col: calculate_psi(ref_df[col], incoming_df[col])
+        for col in ref_df.columns
+    }
+    drift_detected = any(score > PSI_THRESHOLD for score in drift_scores.values())
+    return drift_detected, drift_scores
 
 # --- SESSION STATE ---
+if "paused" not in st.session_state:
+    st.session_state.paused = False
 if "history" not in st.session_state:
     st.session_state.history = pd.DataFrame(columns=["timestamp", "prediction"])
 if "row_index" not in st.session_state:
@@ -46,71 +72,51 @@ if "last_prediction_time" not in st.session_state:
     st.session_state.last_prediction_time = time.time()
 if "table_data" not in st.session_state:
     st.session_state.table_data = pd.DataFrame()
-if "paused" not in st.session_state:
-    st.session_state.paused = False
-if "drift_detected" not in st.session_state:
-    st.session_state.drift_detected = False
-if "anomaly_detected" not in st.session_state:
-    st.session_state.anomaly_detected = False
 
-# --- SIDEBAR ALERTS & PAUSE CONTROL ---
-st.sidebar.header("🚨 System Status")
-st.sidebar.toggle("⏸️ Manually Pause Prediction", key="paused")
-if st.session_state.drift_detected:
-    st.sidebar.error("⚠️ Data Drift Detected! Prediction paused.")
-if st.session_state.anomaly_detected:
-    st.sidebar.error("🚨 Anomaly Detected! Prediction paused.")
-if st.session_state.paused and not (st.session_state.drift_detected or st.session_state.anomaly_detected):
-    st.sidebar.warning("⏸️ Manually paused.")
-if st.session_state.paused:
-    if st.sidebar.button("▶️ Resume Prediction"):
-        st.session_state.paused = False
-        st.session_state.drift_detected = False
-        st.session_state.anomaly_detected = False
-
-# --- LOAD DATA ---
+# --- LOAD LIVE DATA ---
 def load_data():
     if not os.path.exists(DATA_PATH):
         return None
     return pd.read_csv(DATA_PATH)
 
 df = load_data()
+
 if df is None or len(df) == 0:
     st.warning("⏳ Waiting for live data...")
     time.sleep(1)
     st.rerun()
 
-# --- PAUSE CHECK ---
+# --- SIDEBAR CONTROL ---
+st.sidebar.header("⚙️ Controls")
+pause_toggle = st.sidebar.checkbox("Pause Prediction", value=st.session_state.paused)
+if pause_toggle != st.session_state.paused:
+    st.session_state.paused = pause_toggle
+
+# --- ALERT STATE ---
+drift_alert = False
+anomaly_alert = False
+
+# --- PREDICTION LOGIC ---
 elapsed = time.time() - st.session_state.last_prediction_time
 if not st.session_state.paused and elapsed >= PREDICTION_INTERVAL and st.session_state.row_index < len(df):
     current_row = df.iloc[st.session_state.row_index:st.session_state.row_index+1].copy()
-
     try:
         features = current_row.drop(columns=["tool_condition"])
     except KeyError:
         st.error("❌ 'tool_condition' column missing.")
         st.stop()
 
-    # --- DRIFT CHECK ---
-    if st.session_state.row_index % BATCH_SIZE == 0:
-        recent_batch = df.iloc[max(0, st.session_state.row_index - BATCH_SIZE + 1):st.session_state.row_index + 1]
-        if not recent_batch.empty:
-            for col in features.columns:
-                if col in ref_stats.index:
-                    ref_mean = ref_stats.at["mean", col]
-                    batch_mean = recent_batch[col].mean()
-                    drift_ratio = abs(batch_mean - ref_mean) / (ref_mean + 1e-6)
-                    if drift_ratio > 0.2:
-                        st.session_state.paused = True
-                        st.session_state.drift_detected = True
+    # --- Drift Check on Batch (1 row in this case) ---
+    drift_alert, drift_scores = is_data_drifted(reference_data, features)
 
-    # --- ANOMALY DETECTION ---
-    anomaly_result = iso_model.predict(features)
-    if anomaly_result[0] == -1:
+    # --- Anomaly Detection ---
+    anomaly = anomaly_detector.predict(features)[0]
+    anomaly_alert = anomaly == -1
+
+    if drift_alert or anomaly_alert:
         st.session_state.paused = True
-        st.session_state.anomaly_detected = True
 
-    # --- CONTINUE ONLY IF STILL UNPAUSED ---
+    # --- Predict if OK ---
     if not st.session_state.paused:
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(features)
@@ -127,19 +133,28 @@ if not st.session_state.paused and elapsed >= PREDICTION_INTERVAL and st.session
         st.session_state.row_index += 1
         st.session_state.last_prediction_time = time.time()
 
+# --- ALERT MESSAGES ---
+st.sidebar.header("🚨 System Alerts")
+if drift_alert:
+    st.sidebar.error("⚠️ Data Drift Detected — Prediction Paused")
+if anomaly_alert:
+    st.sidebar.error("⚠️ Anomaly Detected — Prediction Paused")
+if not drift_alert and not anomaly_alert and not st.session_state.paused:
+    st.sidebar.success("✅ System Healthy")
+
 # --- DISPLAY TABLE ---
 if not st.session_state.table_data.empty:
     st.subheader("📋 Live Processed Data Table")
     st.dataframe(st.session_state.table_data, use_container_width=True)
 
-# --- DISPLAY LATEST PREDICTION ---
+# --- DISPLAY CURRENT PREDICTION ---
 if len(st.session_state.history) > 0:
     latest_pred = st.session_state.history.iloc[-1]
     pred_label = "Worn" if latest_pred["prediction"] == 1 else "Unworn"
     st.subheader("🔍 Current Prediction")
     st.metric(label="Tool Condition", value=pred_label)
 
-# --- PREDICTION GRAPH ---
+# --- VISUALIZATION ---
 if len(st.session_state.history) > 0:
     st.subheader("📈 Prediction History (Smoothed)")
     history_df = st.session_state.history.copy()
