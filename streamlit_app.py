@@ -10,7 +10,7 @@ import statsmodels.api as sm
 # --- SETTINGS ---
 MODEL_PATH = "models/xgboost_model_v20250618_0759.pkl"
 DATA_PATH = "live_data.csv"
-REFRESH_INTERVAL = 1  # seconds
+REFRESH_INTERVAL = 5  # seconds
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Tool Condition Monitor", layout="wide")
