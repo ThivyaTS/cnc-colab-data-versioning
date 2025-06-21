@@ -5,10 +5,11 @@ import joblib
 import os
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
+import statsmodels.api as sm
 
 # --- SETTINGS ---
 MODEL_PATH = "models/xgboost_model_v20250618_0759.pkl"
-DATA_PATH = "live_data.csv"  # This should be updated with new rows over time
+DATA_PATH = "live_data.csv"
 REFRESH_INTERVAL = 1  # seconds
 
 # --- PAGE CONFIG ---
@@ -22,65 +23,85 @@ def load_model():
 
 model = load_model()
 
-# --- SESSION STATE FOR PERSISTENT LIVE VIEW ---
-if 'history' not in st.session_state:
+# --- SESSION STATE ---
+if "history" not in st.session_state:
     st.session_state.history = pd.DataFrame(columns=["timestamp", "prediction"])
+if "last_seen_index" not in st.session_state:
+    st.session_state.last_seen_index = -1
 
-# --- LOAD AND PREPROCESS DATA ---
+# --- LOAD DATA FUNCTION ---
 def load_data():
     if not os.path.exists(DATA_PATH):
         return None
     return pd.read_csv(DATA_PATH)
 
+# --- LOAD & CHECK DATA ---
 df = load_data()
-
-# --- WAIT IF DATA NOT AVAILABLE ---
 if df is None or len(df) == 0:
-    st.warning("⏳ Waiting for `live_data.csv` file to appear or be populated...")
+    st.warning("⏳ Waiting for live data...")
     time.sleep(REFRESH_INTERVAL)
     st.rerun()
 
-# --- SHOW LIVE DATA TABLE ---
-st.subheader("📋 Incoming Live Data")
-st.dataframe(df.tail(10), use_container_width=True)  # Show only the last 10 rows for clarity
+# --- NEW ROWS SINCE LAST SEEN ---
+new_rows = df.iloc[st.session_state.last_seen_index + 1:]
+if new_rows.empty:
+    st.info("✅ No new data yet...")
+    time.sleep(REFRESH_INTERVAL)
+    st.rerun()
 
-# --- SELECT LATEST ROW ---
-latest_row = df.iloc[-1:].copy()
+# --- TABLE OF NEW DATA ---
+st.subheader("📋 New Incoming Data")
+st.dataframe(new_rows, use_container_width=True)
 
-# --- SCALE FEATURES ---
-try:
-    features = latest_row.drop(columns=["tool_condition"])
-except KeyError:
-    st.error("❌ 'tool_condition' column not found in data.")
-    st.stop()
+# --- PROCESS EACH NEW ROW ---
+for idx, row in new_rows.iterrows():
+    latest_row = row.to_frame().T
+    timestamp = pd.Timestamp.now().strftime('%H:%M:%S')
 
-scaler = StandardScaler()
-features_scaled = scaler.fit_transform(features)
+    # Drop label to predict
+    try:
+        features = latest_row.drop(columns=["tool_condition"])
+    except KeyError:
+        st.error("❌ 'tool_condition' column missing.")
+        st.stop()
 
-# --- MAKE PREDICTION ---
-prediction = model.predict(features_scaled)[0]
-pred_label = "Worn" if prediction == 1 else "Unworn"
+    # Scale features
+    scaler = StandardScaler()
+    features_scaled = scaler.fit_transform(features)
 
-# --- SAVE TO HISTORY ---
-timestamp = pd.Timestamp.now().strftime('%H:%M:%S')
-st.session_state.history.loc[len(st.session_state.history)] = [timestamp, prediction]
+    # Predict
+    prediction = model.predict(features_scaled)[0]
 
-# --- DISPLAY CURRENT PREDICTION ---
+    # Save to history
+    st.session_state.history.loc[len(st.session_state.history)] = [timestamp, prediction]
+    st.session_state.last_seen_index = idx  # update last seen
+
+# --- SHOW CURRENT PREDICTION ---
+latest_pred = st.session_state.history.iloc[-1]
+pred_label = "Worn" if latest_pred["prediction"] == 1 else "Unworn"
 st.subheader("🔍 Current Prediction")
 st.metric(label="Tool Condition", value=pred_label)
 
-# --- DISPLAY PREDICTION HISTORY ---
-st.subheader("📈 Prediction Over Time")
-history_df = st.session_state.history
+# --- HISTORY VISUALIZATION WITH SMOOTH CURVE ---
+st.subheader("📈 Prediction History (Fitted Curve)")
+history_df = st.session_state.history.copy()
+history_df["idx"] = range(len(history_df))
 
-fig, ax = plt.subplots()
-ax.plot(history_df["timestamp"], history_df["prediction"], marker='o', linestyle='-')
-ax.set_ylabel("Prediction (0=Unworn, 1=Worn)")
-ax.set_xlabel("Time")
-ax.set_ylim(-0.2, 1.2)
+# Smooth line with LOWESS
+lowess = sm.nonparametric.lowess
+smoothed = lowess(history_df["prediction"], history_df["idx"], frac=0.3)
+
+fig, ax = plt.subplots(figsize=(8, 3))
+ax.plot(history_df["idx"], history_df["prediction"], 'o', alpha=0.5, label="Raw Prediction")
+ax.plot(smoothed[:, 0], smoothed[:, 1], 'r-', linewidth=2, label="Smoothed Curve")
+ax.set_yticks([0, 1])
+ax.set_yticklabels(["Unworn", "Worn"])
+ax.set_xlabel("Time (Prediction Steps)")
+ax.set_title("Tool Condition Over Time")
 ax.grid(True)
+ax.legend()
 st.pyplot(fig)
 
-# --- AUTO-REFRESH ---
+# --- AUTO REFRESH ---
 time.sleep(REFRESH_INTERVAL)
 st.rerun()
