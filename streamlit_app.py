@@ -23,17 +23,17 @@ def load_model():
 
 model = load_model()
 
-# --- SESSION STATE INIT ---
+# --- SESSION STATE INITIALIZATION ---
 if "history" not in st.session_state:
     st.session_state.history = pd.DataFrame(columns=["timestamp", "prediction"])
 if "row_index" not in st.session_state:
     st.session_state.row_index = 0
 if "last_prediction_time" not in st.session_state:
     st.session_state.last_prediction_time = time.time()
-if "processed_data" not in st.session_state:
-    st.session_state.processed_data = pd.DataFrame()
+if "table_data" not in st.session_state:
+    st.session_state.table_data = pd.DataFrame()
 
-# --- LOAD LIVE DATA ---
+# --- LOAD DATA ---
 def load_data():
     if not os.path.exists(DATA_PATH):
         return None
@@ -46,11 +46,11 @@ if df is None or len(df) == 0:
     time.sleep(1)
     st.rerun()
 
-# --- RUN PREDICTION EVERY 5 SECONDS ---
+# --- PREDICT EVERY 5 SECONDS ---
 elapsed = time.time() - st.session_state.last_prediction_time
 if elapsed >= PREDICTION_INTERVAL and st.session_state.row_index < len(df):
     current_row = df.iloc[st.session_state.row_index:st.session_state.row_index+1].copy()
-
+    
     try:
         features = current_row.drop(columns=["tool_condition"])
     except KeyError:
@@ -64,13 +64,19 @@ if elapsed >= PREDICTION_INTERVAL and st.session_state.row_index < len(df):
     timestamp = pd.Timestamp.now().strftime('%H:%M:%S')
     st.session_state.history.loc[len(st.session_state.history)] = [timestamp, prediction]
 
-    # Add prediction result to current row for table display
-    current_row["Prediction"] = "Worn" if prediction == 1 else "Unworn"
-    current_row["Timestamp"] = timestamp
-    st.session_state.processed_data = pd.concat([st.session_state.processed_data, current_row], ignore_index=True)
+    # Add row + prediction to display table
+    display_row = current_row.copy()
+    display_row["Predicted Condition"] = "Worn" if prediction == 1 else "Unworn"
+    display_row["Timestamp"] = timestamp
+    st.session_state.table_data = pd.concat([st.session_state.table_data, display_row], ignore_index=True)
 
     st.session_state.row_index += 1
     st.session_state.last_prediction_time = time.time()
+
+# --- DISPLAY PREDICTION TABLE ---
+if not st.session_state.table_data.empty:
+    st.subheader("📋 Live Processed Data Table")
+    st.dataframe(st.session_state.table_data, use_container_width=True)
 
 # --- DISPLAY CURRENT PREDICTION ---
 if len(st.session_state.history) > 0:
@@ -79,12 +85,7 @@ if len(st.session_state.history) > 0:
     st.subheader("🔍 Current Prediction")
     st.metric(label="Tool Condition", value=pred_label)
 
-# --- DISPLAY PROCESSED TABLE ---
-if len(st.session_state.processed_data) > 0:
-    st.subheader("📋 Live Updated Data Table")
-    st.dataframe(st.session_state.processed_data.tail(10), use_container_width=True)
-
-# --- SMOOTHED CURVE CHART ---
+# --- SMOOTHED PREDICTION CURVE ---
 if len(st.session_state.history) > 0:
     st.subheader("📈 Prediction History (Smoothed)")
     history_df = st.session_state.history.copy()
