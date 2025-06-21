@@ -15,7 +15,7 @@ ANOMALY_MODEL_PATH = "models/isolation_forest_model_v20250621_1222.pkl"
 REFERENCE_PATH = "reference_data.csv"
 DATA_PATH = "live_data.csv"
 PREDICTION_INTERVAL = 5  # seconds
-PSI_THRESHOLD = 0.25  # for drift detection
+PSI_THRESHOLD = 0.25  # Drift threshold
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Tool Condition Monitor", layout="wide")
@@ -30,7 +30,7 @@ def load_models():
 
 model, anomaly_detector = load_models()
 
-# --- LOAD REFERENCE DATA FOR DRIFT CHECK ---
+# --- LOAD REFERENCE DATA ---
 @st.cache_data
 def load_reference():
     df = pd.read_csv(REFERENCE_PATH)
@@ -38,7 +38,7 @@ def load_reference():
 
 reference_data = load_reference()
 
-# --- PSI DRIFT CHECK ---
+# --- DRIFT CHECK ---
 def calculate_psi(expected, actual, buckets=10):
     breakpoints = np.percentile(expected, np.linspace(0, 100, buckets + 1))
     expected_counts = np.histogram(expected, bins=breakpoints)[0]
@@ -54,11 +54,30 @@ def calculate_psi(expected, actual, buckets=10):
     return psi
 
 def is_data_drifted(ref_df, incoming_df):
-    drift_scores = {
-        col: calculate_psi(ref_df[col], incoming_df[col])
-        for col in ref_df.columns
-    }
-    drift_detected = any(score > PSI_THRESHOLD for score in drift_scores.values())
+    drift_scores = {}
+    drift_detected = False
+
+    ref_cols = set(ref_df.columns)
+    live_cols = set(incoming_df.columns)
+    common_cols = ref_cols & live_cols
+
+    missing_in_live = ref_cols - live_cols
+    missing_in_ref = live_cols - ref_cols
+
+    if missing_in_live:
+        st.sidebar.warning(f"⚠️ Missing in live data: {missing_in_live}")
+    if missing_in_ref:
+        st.sidebar.warning(f"⚠️ Missing in reference data: {missing_in_ref}")
+
+    for col in common_cols:
+        try:
+            psi = calculate_psi(ref_df[col], incoming_df[col])
+            drift_scores[col] = psi
+            if psi > PSI_THRESHOLD:
+                drift_detected = True
+        except Exception as e:
+            st.sidebar.error(f"Error calculating PSI for {col}: {e}")
+
     return drift_detected, drift_scores
 
 # --- SESSION STATE ---
@@ -86,38 +105,44 @@ if df is None or len(df) == 0:
     time.sleep(1)
     st.rerun()
 
-# --- SIDEBAR CONTROL ---
+# --- SIDEBAR CONTROLS ---
 st.sidebar.header("⚙️ Controls")
 pause_toggle = st.sidebar.checkbox("Pause Prediction", value=st.session_state.paused)
 if pause_toggle != st.session_state.paused:
     st.session_state.paused = pause_toggle
 
-# --- ALERT STATE ---
+# --- DRIFT & ANOMALY ALERT FLAGS ---
 drift_alert = False
 anomaly_alert = False
 
-# --- PREDICTION LOGIC ---
+# --- MAIN PREDICTION LOOP ---
 elapsed = time.time() - st.session_state.last_prediction_time
 if not st.session_state.paused and elapsed >= PREDICTION_INTERVAL and st.session_state.row_index < len(df):
-    current_row = df.iloc[st.session_state.row_index:st.session_state.row_index+1].copy()
+    current_row = df.iloc[st.session_state.row_index:st.session_state.row_index + 1].copy()
+    
     try:
         features = current_row.drop(columns=["tool_condition"])
     except KeyError:
-        st.error("❌ 'tool_condition' column missing.")
+        st.error("❌ 'tool_condition' column missing in incoming data.")
         st.stop()
 
-    # --- Drift Check on Batch (1 row in this case) ---
+    # Drift detection
     drift_alert, drift_scores = is_data_drifted(reference_data, features)
 
-    # --- Anomaly Detection ---
-    anomaly = anomaly_detector.predict(features)[0]
-    anomaly_alert = anomaly == -1
+    # Anomaly detection
+    try:
+        anomaly = anomaly_detector.predict(features)[0]
+        anomaly_alert = anomaly == -1
+    except Exception as e:
+        st.sidebar.error(f"Anomaly Detection Failed: {e}")
+        anomaly_alert = True
 
+    # Pause system if any issue
     if drift_alert or anomaly_alert:
         st.session_state.paused = True
 
-    # --- Predict if OK ---
     if not st.session_state.paused:
+        # Predict
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(features)
         prediction = model.predict(features_scaled)[0]
@@ -125,6 +150,7 @@ if not st.session_state.paused and elapsed >= PREDICTION_INTERVAL and st.session
         timestamp = pd.Timestamp.now().strftime('%H:%M:%S')
         st.session_state.history.loc[len(st.session_state.history)] = [timestamp, prediction]
 
+        # Add to table
         display_row = current_row.copy()
         display_row["Predicted Condition"] = "Worn" if prediction == 1 else "Unworn"
         display_row["Timestamp"] = timestamp
@@ -133,12 +159,12 @@ if not st.session_state.paused and elapsed >= PREDICTION_INTERVAL and st.session
         st.session_state.row_index += 1
         st.session_state.last_prediction_time = time.time()
 
-# --- ALERT MESSAGES ---
+# --- SIDEBAR ALERTS ---
 st.sidebar.header("🚨 System Alerts")
 if drift_alert:
-    st.sidebar.error("⚠️ Data Drift Detected — Prediction Paused")
+    st.sidebar.error("⚠️ Data Drift Detected — Paused")
 if anomaly_alert:
-    st.sidebar.error("⚠️ Anomaly Detected — Prediction Paused")
+    st.sidebar.error("⚠️ Anomaly Detected — Paused")
 if not drift_alert and not anomaly_alert and not st.session_state.paused:
     st.sidebar.success("✅ System Healthy")
 
@@ -154,7 +180,7 @@ if len(st.session_state.history) > 0:
     st.subheader("🔍 Current Prediction")
     st.metric(label="Tool Condition", value=pred_label)
 
-# --- VISUALIZATION ---
+# --- SMOOTHED VISUALIZATION ---
 if len(st.session_state.history) > 0:
     st.subheader("📈 Prediction History (Smoothed)")
     history_df = st.session_state.history.copy()
@@ -164,11 +190,11 @@ if len(st.session_state.history) > 0:
     smoothed = lowess(history_df["prediction"], history_df["idx"], frac=0.4)
 
     fig, ax = plt.subplots(figsize=(8, 3))
-    ax.plot(history_df["idx"], history_df["prediction"], 'o', alpha=0.5, label="Raw Prediction")
-    ax.plot(smoothed[:, 0], smoothed[:, 1], 'r-', linewidth=2, label="Smoothed Curve")
+    ax.plot(history_df["idx"], history_df["prediction"], 'o', alpha=0.5, label="Raw")
+    ax.plot(smoothed[:, 0], smoothed[:, 1], 'r-', linewidth=2, label="Smoothed")
     ax.set_yticks([0, 1])
     ax.set_yticklabels(["Unworn", "Worn"])
-    ax.set_xlabel("Time (Prediction Steps)")
+    ax.set_xlabel("Time (Steps)")
     ax.set_title("Tool Condition Over Time")
     ax.grid(True)
     ax.legend()
