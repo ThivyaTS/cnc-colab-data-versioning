@@ -3,73 +3,78 @@ import pandas as pd
 import numpy as np
 import joblib
 import time
-from sklearn.metrics import pairwise_distances
+from evidently.metrics import DataDriftPreset
+from evidently.report import Report
 
-# Load models and reference data
-ref_data = pd.read_csv('reference_data.csv')
-live_data = pd.read_csv('live_data.csv')
-if_model = joblib.load('models/isolation_forest_model_v20250621_1222.pkl')
-xgb_model = joblib.load('models/xgboost_model_v20250618_0759.pkl')
+# --- Load models and data ---
+ref_data = pd.read_csv("reference_data.csv")
+live_data = pd.read_csv("live_data.csv")
 
-# Sidebar controls
+if_model = joblib.load("isolation_forest_model_v20250621_1222.pkl")
+xgb_model = joblib.load("xgboost_model_v20250618_0759.pkl")
+
+# --- Sidebar Controls ---
 st.sidebar.title("Controls")
-pause_prediction = st.sidebar.checkbox("Pause Prediction")
+pause_prediction = st.sidebar.checkbox("Pause Prediction", value=False)
 
-# Alert box function
-def alert_box(msg, color):
-    st.markdown(f"<div style='padding:10px; background-color:{color}; color:white; border-radius:10px'>{msg}</div>", unsafe_allow_html=True)
+# --- Helper: Alert Box ---
+def alert_box(message, color="gray"):
+    st.markdown(
+        f"<div style='padding:10px; background-color:{color}; color:white; border-radius:10px'>{message}</div>",
+        unsafe_allow_html=True,
+    )
 
-# Drift detection using JS divergence
-def js_divergence(p, q):
-    p = np.array(p) + 1e-8
-    q = np.array(q) + 1e-8
-    m = 0.5 * (p + q)
-    return 0.5 * (entropy(p, m) + entropy(q, m))
+# --- Drift Detection with Evidently (PSI based) ---
+def check_data_drift(reference, current_row):
+    report = Report(metrics=[DataDriftPreset()])
+    try:
+        report.run(reference_data=reference, current_data=current_row)
+        drift_result = report.as_dict()
+        drifted = drift_result["metrics"][0]["result"]["dataset_drift"]
+        drifted_cols = [
+            f["column_name"]
+            for f in drift_result["metrics"][0]["result"]["drift_by_columns"].values()
+            if f["drift_detected"]
+        ]
+        return drifted, drifted_cols
+    except Exception as e:
+        return False, []
 
-def detect_drift(ref_df, live_df, threshold=0.1):
-    drift_results = {}
-    for col in ref_df.columns:
-        if ref_df[col].dtype != 'object':
-            ref_hist = np.histogram(ref_df[col], bins=10, density=True)[0]
-            live_hist = np.histogram(live_df[col], bins=10, density=True)[0]
-            js_score = js_divergence(ref_hist, live_hist)
-            drift_results[col] = js_score > threshold
-    return drift_results
+# --- Streamlit App Header ---
+st.title("🛠️ Tool Wear Monitoring Dashboard")
+st.markdown("This dashboard streams live data, predicts tool wear, detects anomalies and monitors for data drift.")
 
-# Main dashboard
-st.title("Tool Wear Monitoring Dashboard")
-
-# Simulate streaming by reading live data row-by-row
+# --- Process Each Row in Live Data ---
 for idx in range(len(live_data)):
     if pause_prediction:
-        alert_box("Prediction is paused.", "gray")
+        alert_box("⏸️ Prediction paused.", "gray")
         break
 
-    current_row = live_data.iloc[[idx]]
+    row = live_data.iloc[[idx]].copy()
+    input_features = row.drop(columns=["Tool_Condition"], errors="ignore")
 
     # --- Predict Tool Wear ---
-    wear_pred = xgb_model.predict(current_row.drop(columns=['Tool_Condition'], errors='ignore'))
-    wear_status = 'Worn' if wear_pred[0] == 1 else 'Unworn'
-    color = "red" if wear_status == 'Worn' else "green"
-    st.subheader(f"Row {idx+1} Tool Wear Status: ")
-    alert_box(f"Predicted Tool Condition: {wear_status}", color)
+    wear_prediction = xgb_model.predict(input_features)[0]
+    wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
+    wear_color = "red" if wear_prediction == 1 else "green"
+    alert_box(f"Tool Wear Prediction: {wear_label}", wear_color)
 
-    # --- Detect Anomaly ---
-    anomaly_score = if_model.decision_function(current_row)
-    is_anomaly = if_model.predict(current_row)[0] == -1
-    if is_anomaly:
-        alert_box("Anomaly Detected!", "orange")
+    # --- Anomaly Detection ---
+    anomaly_result = if_model.predict(input_features)[0]
+    if anomaly_result == -1:
+        alert_box("⚠️ Anomaly Detected!", "orange")
 
-    # --- Data Drift Detection ---
-    drift_result = detect_drift(ref_data, current_row)
-    drifted_features = [k for k, v in drift_result.items() if v]
-    if drifted_features:
-        alert_box(f"Data Drift Detected in: {', '.join(drifted_features)}", "blue")
+    # --- Drift Detection ---
+    drift_detected, drift_columns = check_data_drift(ref_data, row)
+    if drift_detected:
+        drift_col_str = ', '.join(drift_columns) if drift_columns else 'Unknown columns'
+        alert_box(f"📊 Data Drift Detected in: {drift_col_str}", "blue")
 
-    # --- Show Incoming Data ---
-    st.dataframe(current_row.reset_index(drop=True))
+    # --- Display Incoming Row ---
+    with st.expander(f"📄 Incoming Data Row {idx+1}"):
+        st.dataframe(row.reset_index(drop=True))
 
-    # Delay for simulation
+    # --- Simulate Real-time Delay ---
     time.sleep(1)
 
-st.success("End of Live Data Stream.")
+st.success("✅ Live data stream completed.")
