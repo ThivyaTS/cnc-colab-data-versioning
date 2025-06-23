@@ -11,6 +11,30 @@ live_data = pd.read_csv("live_data.csv")
 if_model = joblib.load(os.path.join("models", "isolation_forest_model_v20250621_1222.pkl"))
 xgb_model = joblib.load(os.path.join("models", "xgboost_model_v20250618_0759.pkl"))
 
+# --- Define expected features ---
+EXPECTED_FEATURES = [
+    "Y1_OutputCurrent",
+    "X1_CommandPosition",
+    "X1_ActualPosition",
+    "clamp_pressure",
+    "Y1_CommandPosition",
+    "Y1_ActualPosition",
+    "X1_OutputCurrent",
+    "X1_DCBusVoltage",
+    "X1_OutputVoltage",
+    "Z1_CommandPosition",
+    "Z1_ActualPosition",
+    "M1_CURRENT_FEEDRATE",
+    "X1_OutputPower",
+    "Y1_OutputVoltage",
+    "S1_OutputCurrent",
+    "Y1_DCBusVoltage",
+    "feedrate",
+    "Y1_OutputPower",
+    "S1_CurrentFeedback",
+    "S1_ActualVelocity"
+]
+
 # --- Sidebar Controls ---
 st.sidebar.title("Controls")
 pause_prediction = st.sidebar.checkbox("Pause Prediction", value=False)
@@ -33,7 +57,11 @@ for idx in range(len(live_data)):
         break
 
     row = live_data.iloc[[idx]].copy()
-    input_features = row.drop(columns=["Tool_Condition"], errors="ignore")
+    try:
+        input_features = row[EXPECTED_FEATURES]
+    except KeyError as e:
+        st.error(f"Missing expected feature(s): {e}")
+        break
 
     # --- Predict Tool Wear ---
     wear_prediction = xgb_model.predict(input_features)[0]
