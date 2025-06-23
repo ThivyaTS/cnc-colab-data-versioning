@@ -36,29 +36,22 @@ EXPECTED_FEATURES = [
     "S1_ActualVelocity"
 ]
 
-# --- Sidebar Controls ---
-st.sidebar.title("Controls")
-pause_prediction = st.sidebar.checkbox("Pause Prediction", value=False)
-
-# --- Helper: Alert Box ---
-def alert_box(message, color="gray"):
-    st.markdown(
-        f"<div style='padding:10px; background-color:{color}; color:white; border-radius:10px'>{message}</div>",
-        unsafe_allow_html=True,
-    )
-
 # --- Streamlit App Header ---
+st.set_page_config(layout="wide")
 st.title("🛠️ Tool Wear Monitoring Dashboard")
 
-# --- Initialize session state to store dynamic info ---
+# --- Initialize session state ---
 if "observed_count" not in st.session_state:
     st.session_state.observed_count = 0
 if "anomaly_data" not in st.session_state:
     st.session_state.anomaly_data = pd.DataFrame(columns=live_data.columns)
 if "current_wear_label" not in st.session_state:
     st.session_state.current_wear_label = "Unknown"
+if "feature_series" not in st.session_state:
+    st.session_state.feature_series = []
 
 # --- Dashboard Metrics ---
+st.subheader("🔍 Summary")
 st.markdown(f"**Number of Data Observed:** {st.session_state.observed_count}")
 st.markdown(f"**Total Number of Features:** {len(EXPECTED_FEATURES)}")
 st.markdown(f"**Current Tool Wear Condition:** {st.session_state.current_wear_label}")
@@ -68,47 +61,33 @@ st.subheader("⚠️ Anomaly Detected Rows")
 st.dataframe(st.session_state.anomaly_data.reset_index(drop=True), use_container_width=True)
 
 # --- Feature Visualization ---
-FEATURE_TO_PLOT = "X1_OutputCurrent"
+st.subheader("📈 Feature Visualization - X1_OutputCurrent")
+st.session_state.feature_series.append(live_data.loc[st.session_state.observed_count, "X1_OutputCurrent"])
 fig, ax = plt.subplots()
-ax.plot(st.session_state.anomaly_data[FEATURE_TO_PLOT], marker='o', linestyle='-')
-ax.set_title(f"{FEATURE_TO_PLOT} - Anomaly Trend")
-ax.set_xlabel("Anomaly Index")
-ax.set_ylabel(FEATURE_TO_PLOT)
+ax.plot(st.session_state.feature_series, marker='o')
+ax.set_xlabel("Observation")
+ax.set_ylabel("X1_OutputCurrent")
+ax.set_title("Live Update of X1_OutputCurrent")
 st.pyplot(fig)
 
-# --- Process Each Row in Live Data ---
-for idx in range(len(live_data)):
-    if pause_prediction:
-        alert_box("⏸️ Prediction paused.", "gray")
-        break
-
-    row = live_data.iloc[[idx]].copy()
+# --- Process New Row ---
+if st.session_state.observed_count < len(live_data):
+    row = live_data.iloc[[st.session_state.observed_count]].copy()
     try:
         input_features = row[EXPECTED_FEATURES]
     except KeyError as e:
         st.error(f"Missing expected feature(s): {e}")
-        break
+    else:
+        # Predict Tool Wear
+        wear_prediction = xgb_model.predict(input_features)[0]
+        wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
+        st.session_state.current_wear_label = wear_label
 
-    # --- Predict Tool Wear ---
-    wear_prediction = xgb_model.predict(input_features)[0]
-    wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
-    wear_color = "red" if wear_prediction == 1 else "green"
-    st.session_state.current_wear_label = wear_label
-    alert_box(f"Tool Wear Prediction: {wear_label}", wear_color)
+        # Anomaly Detection
+        anomaly_result = if_model.predict(input_features)[0]
+        if anomaly_result == -1:
+            st.session_state.anomaly_data = pd.concat([st.session_state.anomaly_data, row], ignore_index=True)
 
-    # --- Anomaly Detection ---
-    anomaly_result = if_model.predict(input_features)[0]
-    if anomaly_result == -1:
-        alert_box("⚠️ Anomaly Detected!", "orange")
-        st.session_state.anomaly_data = pd.concat([st.session_state.anomaly_data, row], ignore_index=True)
+        st.session_state.observed_count += 1
 
-    st.session_state.observed_count += 1
-
-    # --- Display Incoming Row ---
-    with st.expander(f"📄 Incoming Data Row {idx+1}"):
-        st.dataframe(row.reset_index(drop=True))
-
-    # --- Simulate Real-time Delay ---
-    time.sleep(1)
-
-st.success("✅ Live data stream completed.")
+st.button("🔁 Next Observation")
