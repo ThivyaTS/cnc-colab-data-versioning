@@ -7,8 +7,8 @@ import time
 # --- Load models and data ---
 live_data = pd.read_csv("live_data.csv")
 
-if_model = joblib.load("isolation_forest_model_v20250621_1222.pkl")
-xgb_model = joblib.load("xgboost_model_v20250618_0759.pkl")
+if_model = joblib.load("models/isolation_forest_model_v20250621_1222.pkl")
+xgb_model = joblib.load("models/xgboost_model_v20250618_0759.pkl")
 
 # --- Sidebar Controls ---
 st.sidebar.title("Controls")
