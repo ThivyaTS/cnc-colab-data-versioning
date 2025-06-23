@@ -3,11 +3,8 @@ import pandas as pd
 import numpy as np
 import joblib
 import time
-from evidently import Report
-from evidently.presets import DataDriftPreset
 
 # --- Load models and data ---
-ref_data = pd.read_csv("reference_data.csv")
 live_data = pd.read_csv("live_data.csv")
 
 if_model = joblib.load("isolation_forest_model_v20250621_1222.pkl")
@@ -24,24 +21,9 @@ def alert_box(message, color="gray"):
         unsafe_allow_html=True,
     )
 
-# --- Drift Detection with Evidently (PSI based) ---
-def check_data_drift(reference_df, current_df):
-    try:
-        report = Report([DataDriftPreset(drift_share=0.1, method="psi")])
-        report.run(reference_data=reference_df, current_data=current_df)
-        report_dict = report.as_dict()
-        drift_detected = report_dict["metrics"][0]["result"]["dataset_drift"]
-        drifted_cols = [
-            col for col, val in report_dict["metrics"][0]["result"]["drift_by_columns"].items()
-            if val["drift_detected"]
-        ]
-        return drift_detected, drifted_cols
-    except Exception as e:
-        return False, []
-
 # --- Streamlit App Header ---
 st.title("🛠️ Tool Wear Monitoring Dashboard")
-st.markdown("This dashboard streams live data, predicts tool wear, detects anomalies and monitors for data drift.")
+st.markdown("This dashboard streams live data, predicts tool wear, and detects anomalies.")
 
 # --- Process Each Row in Live Data ---
 for idx in range(len(live_data)):
@@ -51,7 +33,6 @@ for idx in range(len(live_data)):
 
     row = live_data.iloc[[idx]].copy()
     input_features = row.drop(columns=["Tool_Condition"], errors="ignore")
-    ref_features = ref_data.drop(columns=["Tool_Condition"], errors="ignore")
 
     # --- Predict Tool Wear ---
     wear_prediction = xgb_model.predict(input_features)[0]
@@ -63,12 +44,6 @@ for idx in range(len(live_data)):
     anomaly_result = if_model.predict(input_features)[0]
     if anomaly_result == -1:
         alert_box("⚠️ Anomaly Detected!", "orange")
-
-    # --- Drift Detection ---
-    drift_detected, drift_columns = check_data_drift(ref_features, input_features)
-    if drift_detected:
-        drift_col_str = ', '.join(drift_columns) if drift_columns else 'Unknown columns'
-        alert_box(f"📊 Data Drift Detected in: {drift_col_str}", "blue")
 
     # --- Display Incoming Row ---
     with st.expander(f"📄 Incoming Data Row {idx+1}"):
