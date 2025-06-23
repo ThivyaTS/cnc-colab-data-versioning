@@ -1,7 +1,0 @@
-tool_condition,Y1_OutputCurrent,X1_CommandPosition,X1_ActualPosition,clamp_pressure,Y1_CommandPosition,Y1_ActualPosition,X1_OutputCurrent,X1_DCBusVoltage,X1_OutputVoltage,Z1_CommandPosition,Z1_ActualPosition,M1_CURRENT_FEEDRATE,X1_OutputPower,Y1_OutputVoltage,S1_OutputCurrent,Y1_DCBusVoltage,feedrate,Y1_OutputPower,S1_CurrentFeedback,S1_ActualVelocity
-0,0.45,12.4,12.39,5.5,12.4,12.4,0.44,300,220,8.4,8.4,100,0.2,210,0.3,295,105,0.21,0.3,500
-0,0.45,12.4,12.39,5.5,12.4,12.4,0.44,300,220,8.4,8.4,100,0.2,210,0.3,295,105,0.21,0.3,500
-0,0.45,12.4,12.39,5.5,12.4,12.4,0.44,300,220,8.4,8.4,100,0.2,210,0.3,295,105,0.21,0.3,500
-0,0.45,12.4,12.39,5.5,12.4,12.4,0.44,300,220,8.4,8.4,100,0.2,210,0.3,295,105,0.21,0.3,500
-0,0.45,12.4,12.39,5.5,12.4,12.4,0.44,300,220,8.4,8.4,100,0.2,210,0.3,295,105,0.21,0.3,500
-0,0.45,12.4,12.39,5.5,12.4,12.4,0.44,300,220,8.4,8.4,100,0.2,210,0.3,295,105,0.21,0.3,500
