@@ -4,7 +4,6 @@ import numpy as np
 import joblib
 import time
 from sklearn.metrics import pairwise_distances
-from scipy.stats import entropy
 
 # Load models and reference data
 ref_data = pd.read_csv('reference_data.csv')
