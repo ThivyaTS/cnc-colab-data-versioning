@@ -40,6 +40,28 @@ EXPECTED_FEATURES = [
 st.set_page_config(layout="wide")
 st.title("🛠️ Tool Wear Monitoring Dashboard")
 
+# --- Process New Row ---
+if st.session_state.observed_count < len(live_data):
+    row = live_data.iloc[[st.session_state.observed_count]].copy()
+    try:
+        input_features = row[EXPECTED_FEATURES]
+    except KeyError as e:
+        st.error(f"Missing expected feature(s): {e}")
+    else:
+        # Predict Tool Wear
+        wear_prediction = xgb_model.predict(input_features)[0]
+        wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
+        st.session_state.current_wear_label = wear_label
+
+        # Anomaly Detection
+        anomaly_result = if_model.predict(input_features)[0]
+        if anomaly_result == -1:
+            st.session_state.anomaly_data = pd.concat([st.session_state.anomaly_data, row], ignore_index=True)
+
+        st.session_state.observed_count += 1
+
+st.button("🔁 Next Observation")
+
 # --- Initialize session state ---
 if "observed_count" not in st.session_state:
     st.session_state.observed_count = 0
@@ -70,24 +92,3 @@ ax.set_ylabel("X1_OutputCurrent")
 ax.set_title("Live Update of X1_OutputCurrent")
 st.pyplot(fig)
 
-# --- Process New Row ---
-if st.session_state.observed_count < len(live_data):
-    row = live_data.iloc[[st.session_state.observed_count]].copy()
-    try:
-        input_features = row[EXPECTED_FEATURES]
-    except KeyError as e:
-        st.error(f"Missing expected feature(s): {e}")
-    else:
-        # Predict Tool Wear
-        wear_prediction = xgb_model.predict(input_features)[0]
-        wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
-        st.session_state.current_wear_label = wear_label
-
-        # Anomaly Detection
-        anomaly_result = if_model.predict(input_features)[0]
-        if anomaly_result == -1:
-            st.session_state.anomaly_data = pd.concat([st.session_state.anomaly_data, row], ignore_index=True)
-
-        st.session_state.observed_count += 1
-
-st.button("🔁 Next Observation")
