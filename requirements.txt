@@ -5,3 +5,4 @@ scikit-learn
 xgboost
 joblib
 evidently==0.4.13
+pydantic==1.10.14
