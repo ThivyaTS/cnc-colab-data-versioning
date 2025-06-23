@@ -38,29 +38,12 @@ EXPECTED_FEATURES = [
 
 # --- Streamlit App Header ---
 st.set_page_config(layout="wide")
-st.title("🛠️ Tool Wear Monitoring Dashboard")
 
-# --- Process New Row ---
-if st.session_state.observed_count < len(live_data):
-    row = live_data.iloc[[st.session_state.observed_count]].copy()
-    try:
-        input_features = row[EXPECTED_FEATURES]
-    except KeyError as e:
-        st.error(f"Missing expected feature(s): {e}")
-    else:
-        # Predict Tool Wear
-        wear_prediction = xgb_model.predict(input_features)[0]
-        wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
-        st.session_state.current_wear_label = wear_label
-
-        # Anomaly Detection
-        anomaly_result = if_model.predict(input_features)[0]
-        if anomaly_result == -1:
-            st.session_state.anomaly_data = pd.concat([st.session_state.anomaly_data, row], ignore_index=True)
-
-        st.session_state.observed_count += 1
-
-st.button("🔁 Next Observation")
+header_col1, header_col2 = st.columns([4, 1])
+with header_col1:
+    st.title("🛠️ Tool Wear Monitoring Dashboard")
+with header_col2:
+    st.button("🔁 Next Observation")
 
 # --- Initialize session state ---
 if "observed_count" not in st.session_state:
@@ -84,7 +67,8 @@ st.dataframe(st.session_state.anomaly_data.reset_index(drop=True), use_container
 
 # --- Feature Visualization ---
 st.subheader("📈 Feature Visualization - X1_OutputCurrent")
-st.session_state.feature_series.append(live_data.loc[st.session_state.observed_count, "X1_OutputCurrent"])
+if st.session_state.observed_count < len(live_data):
+    st.session_state.feature_series.append(live_data.loc[st.session_state.observed_count, "X1_OutputCurrent"])
 fig, ax = plt.subplots()
 ax.plot(st.session_state.feature_series, marker='o')
 ax.set_xlabel("Observation")
@@ -92,3 +76,22 @@ ax.set_ylabel("X1_OutputCurrent")
 ax.set_title("Live Update of X1_OutputCurrent")
 st.pyplot(fig)
 
+# --- Process New Row ---
+if st.session_state.observed_count < len(live_data):
+    row = live_data.iloc[[st.session_state.observed_count]].copy()
+    try:
+        input_features = row[EXPECTED_FEATURES]
+    except KeyError as e:
+        st.error(f"Missing expected feature(s): {e}")
+    else:
+        # Predict Tool Wear
+        wear_prediction = xgb_model.predict(input_features)[0]
+        wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
+        st.session_state.current_wear_label = wear_label
+
+        # Anomaly Detection
+        anomaly_result = if_model.predict(input_features)[0]
+        if anomaly_result == -1:
+            st.session_state.anomaly_data = pd.concat([st.session_state.anomaly_data, row], ignore_index=True)
+
+        st.session_state.observed_count += 1
