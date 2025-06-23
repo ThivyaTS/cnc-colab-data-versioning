@@ -4,4 +4,3 @@ numpy
 scikit-learn
 xgboost
 joblib
-scipy==1.11.4
