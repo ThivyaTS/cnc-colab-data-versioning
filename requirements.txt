@@ -1,7 +1,8 @@
 streamlit
-joblib
-pandas
-matplotlib
 scikit-learn
 xgboost
-statsmodels
+numpy
+pandas
+joblib
+scipy==1.11.4
+statsmodels==0.14.0
