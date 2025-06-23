@@ -3,15 +3,15 @@ import pandas as pd
 import numpy as np
 import joblib
 import time
-from evidently.metrics import DataDriftPreset
-from evidently.report import Report
+from evidently import Report
+from evidently.presets import DataDriftPreset
 
 # --- Load models and data ---
 ref_data = pd.read_csv("reference_data.csv")
 live_data = pd.read_csv("live_data.csv")
 
-if_model = joblib.load("models/isolation_forest_model_v20250621_1222.pkl")
-xgb_model = joblib.load("models/xgboost_model_v20250618_0759.pkl")
+if_model = joblib.load("isolation_forest_model_v20250621_1222.pkl")
+xgb_model = joblib.load("xgboost_model_v20250618_0759.pkl")
 
 # --- Sidebar Controls ---
 st.sidebar.title("Controls")
@@ -25,18 +25,17 @@ def alert_box(message, color="gray"):
     )
 
 # --- Drift Detection with Evidently (PSI based) ---
-def check_data_drift(reference, current_row):
-    report = Report(metrics=[DataDriftPreset()])
+def check_data_drift(reference_df, current_df):
     try:
-        report.run(reference_data=reference, current_data=current_row)
-        drift_result = report.as_dict()
-        drifted = drift_result["metrics"][0]["result"]["dataset_drift"]
+        report = Report([DataDriftPreset(drift_share=0.1, method="psi")])
+        report.run(reference_data=reference_df, current_data=current_df)
+        report_dict = report.as_dict()
+        drift_detected = report_dict["metrics"][0]["result"]["dataset_drift"]
         drifted_cols = [
-            f["column_name"]
-            for f in drift_result["metrics"][0]["result"]["drift_by_columns"].values()
-            if f["drift_detected"]
+            col for col, val in report_dict["metrics"][0]["result"]["drift_by_columns"].items()
+            if val["drift_detected"]
         ]
-        return drifted, drifted_cols
+        return drift_detected, drifted_cols
     except Exception as e:
         return False, []
 
@@ -52,6 +51,7 @@ for idx in range(len(live_data)):
 
     row = live_data.iloc[[idx]].copy()
     input_features = row.drop(columns=["Tool_Condition"], errors="ignore")
+    ref_features = ref_data.drop(columns=["Tool_Condition"], errors="ignore")
 
     # --- Predict Tool Wear ---
     wear_prediction = xgb_model.predict(input_features)[0]
@@ -65,7 +65,7 @@ for idx in range(len(live_data)):
         alert_box("⚠️ Anomaly Detected!", "orange")
 
     # --- Drift Detection ---
-    drift_detected, drift_columns = check_data_drift(ref_data, row)
+    drift_detected, drift_columns = check_data_drift(ref_features, input_features)
     if drift_detected:
         drift_col_str = ', '.join(drift_columns) if drift_columns else 'Unknown columns'
         alert_box(f"📊 Data Drift Detected in: {drift_col_str}", "blue")
