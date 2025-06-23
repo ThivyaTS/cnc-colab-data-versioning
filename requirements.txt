@@ -1,8 +1,6 @@
 streamlit
 pandas
-numpy==1.26.4
+numpy
 scikit-learn
 xgboost
 joblib
-evidently==0.4.13
-pydantic==1.10.14
