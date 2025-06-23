@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 # --- Load models and data ---
 live_data = pd.read_csv("live_data.csv")
 
-if_model = joblib.load(os.path.join("models", "isolation_forest_model_v20250621_1222.pkl"))
+if_model = joblib.load(os.path.join("models", "local_outlier_model_v20250623_0600.pkl"))
 xgb_model = joblib.load(os.path.join("models", "xgboost_model_v20250618_0759.pkl"))
 
 # --- Define expected features ---
