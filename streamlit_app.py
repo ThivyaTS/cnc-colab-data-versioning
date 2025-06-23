@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 import time
 import os
+import matplotlib.pyplot as plt
 
 # --- Load models and data ---
 live_data = pd.read_csv("live_data.csv")
@@ -48,7 +49,32 @@ def alert_box(message, color="gray"):
 
 # --- Streamlit App Header ---
 st.title("🛠️ Tool Wear Monitoring Dashboard")
-st.markdown("This dashboard streams live data, predicts tool wear, and detects anomalies.")
+
+# --- Initialize session state to store dynamic info ---
+if "observed_count" not in st.session_state:
+    st.session_state.observed_count = 0
+if "anomaly_data" not in st.session_state:
+    st.session_state.anomaly_data = pd.DataFrame(columns=live_data.columns)
+if "current_wear_label" not in st.session_state:
+    st.session_state.current_wear_label = "Unknown"
+
+# --- Dashboard Metrics ---
+st.markdown(f"**Number of Data Observed:** {st.session_state.observed_count}")
+st.markdown(f"**Total Number of Features:** {len(EXPECTED_FEATURES)}")
+st.markdown(f"**Current Tool Wear Condition:** {st.session_state.current_wear_label}")
+
+# --- Anomaly Table ---
+st.subheader("⚠️ Anomaly Detected Rows")
+st.dataframe(st.session_state.anomaly_data.reset_index(drop=True), use_container_width=True)
+
+# --- Feature Visualization ---
+FEATURE_TO_PLOT = "X1_OutputCurrent"
+fig, ax = plt.subplots()
+ax.plot(st.session_state.anomaly_data[FEATURE_TO_PLOT], marker='o', linestyle='-')
+ax.set_title(f"{FEATURE_TO_PLOT} - Anomaly Trend")
+ax.set_xlabel("Anomaly Index")
+ax.set_ylabel(FEATURE_TO_PLOT)
+st.pyplot(fig)
 
 # --- Process Each Row in Live Data ---
 for idx in range(len(live_data)):
@@ -67,12 +93,16 @@ for idx in range(len(live_data)):
     wear_prediction = xgb_model.predict(input_features)[0]
     wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
     wear_color = "red" if wear_prediction == 1 else "green"
+    st.session_state.current_wear_label = wear_label
     alert_box(f"Tool Wear Prediction: {wear_label}", wear_color)
 
     # --- Anomaly Detection ---
     anomaly_result = if_model.predict(input_features)[0]
     if anomaly_result == -1:
         alert_box("⚠️ Anomaly Detected!", "orange")
+        st.session_state.anomaly_data = pd.concat([st.session_state.anomaly_data, row], ignore_index=True)
+
+    st.session_state.observed_count += 1
 
     # --- Display Incoming Row ---
     with st.expander(f"📄 Incoming Data Row {idx+1}"):
