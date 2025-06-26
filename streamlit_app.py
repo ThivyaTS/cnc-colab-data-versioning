@@ -7,6 +7,31 @@ import matplotlib.pyplot as plt
 import smtplib
 from email.message import EmailMessage
 
+from PIL import Image
+import base64
+
+def set_background(image_path, blur_px=4):
+    with open(image_path, "rb") as file:
+        encoded_image = base64.b64encode(file.read()).decode()
+
+    background_style = f"""
+    <style>
+    .stApp {{
+        background-image: url("data:image/jpg;base64,{encoded_image}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        backdrop-filter: blur({blur_px}px);
+        -webkit-backdrop-filter: blur({blur_px}px);
+    }}
+    </style>
+    """
+    st.markdown(background_style, unsafe_allow_html=True)
+
+# Call the function
+set_background("image1.png", blur_px=6)
+
+
 # --- Load models and data ---
 live_data = pd.read_csv("live_data.csv")
 xgb_model = joblib.load(os.path.join("models", "xgboost_model_v20250618_0759.pkl"))
