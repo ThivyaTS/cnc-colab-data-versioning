@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 import smtplib
 from email.message import EmailMessage
 import base64
-from evidently.metrics import DataDriftPreset
-from evidently.report import Report
+from evidently import Report
+from evidently.presets import DataDriftPreset
+
 
 # --- Page config and background ---
 st.set_page_config(layout="wide")
@@ -91,13 +92,18 @@ def send_email_alert(subject="Tool Wear Alert", message="Tool condition has chan
 # --- Drift detection ---
 def calculate_psi_drift(current_row_df):
     try:
-        report = Report(metrics=[DataDriftPreset()])
-        report.run(reference_data=reference_data[EXPECTED_FEATURES], current_data=current_row_df[EXPECTED_FEATURES])
+        # Drop 'tool_condition' if it exists in either DataFrame
+        ref = reference_data.drop(columns=["tool_condition"], errors="ignore")
+        cur = current_row_df.drop(columns=["tool_condition"], errors="ignore")
+
+        report = Report([DataDriftPreset(drift_share=0.1, method="psi")])
+        report.run(reference_data=ref[EXPECTED_FEATURES], current_data=cur[EXPECTED_FEATURES])
         psi_score = report.as_dict()["metrics"][0]["result"]["dataset_drift_score"]
         return psi_score
     except Exception as e:
         st.error(f"Drift calculation error: {e}")
         return 0.0
+
 
 # --- Header ---
 header_col1, header_col2 = st.columns([4, 1])
