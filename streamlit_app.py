@@ -4,6 +4,8 @@ import numpy as np
 import joblib
 import os
 import matplotlib.pyplot as plt
+import smtplib
+from email.message import EmailMessage
 
 # --- Load models and data ---
 live_data = pd.read_csv("live_data.csv")
@@ -39,8 +41,31 @@ if "actual_pos_series" not in st.session_state:
     st.session_state.actual_pos_series = []
 if "y1_cmd_series" not in st.session_state:
     st.session_state.y1_cmd_series = []
+if "last_wear_prediction" not in st.session_state:
+    st.session_state.last_wear_prediction = 0  # Assume UNWORN initially
 
-# --- Collect next data row ---
+# --- Email function ---
+def send_email_alert():
+    EMAIL_ADDRESS = "your_outlook_email@example.com"  # Replace with your Outlook email
+    EMAIL_PASSWORD = "your_password_or_app_password"  # Use app password if MFA enabled
+    TO_EMAIL = "recipient@example.com"  # Replace with maintenance recipient
+
+    msg = EmailMessage()
+    msg['Subject'] = "Tool Wear Alert - Maintenance Required"
+    msg['From'] = EMAIL_ADDRESS
+    msg['To'] = TO_EMAIL
+    msg.set_content("The tool condition has changed to WORN. Immediate maintenance is recommended.")
+
+    try:
+        with smtplib.SMTP("smtp.office365.com", 587) as smtp:
+            smtp.starttls()
+            smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+            smtp.send_message(msg)
+            print("Email sent successfully")
+    except Exception as e:
+        st.error(f"Failed to send email: {e}")
+
+# --- Process incoming row ---
 if st.session_state.observed_count < len(live_data):
     row = live_data.loc[st.session_state.observed_count]
     st.session_state.feature_series.append(row["X1_OutputCurrent"])
@@ -48,17 +73,24 @@ if st.session_state.observed_count < len(live_data):
     st.session_state.actual_pos_series.append(row["X1_ActualPosition"])
     st.session_state.y1_cmd_series.append(row["Y1_CommandPosition"])
 
-    # Predict Tool Wear
     try:
         input_features = row[EXPECTED_FEATURES].values.reshape(1, -1)
         wear_prediction = xgb_model.predict(input_features)[0]
         wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
         st.session_state.current_wear_label = wear_label
+
+        # Trigger maintenance alert if tool becomes worn
+        if st.session_state.last_wear_prediction == 0 and wear_prediction == 1:
+            st.warning("⚠️ Tool Condition Changed. Maintenance Alert. Sent Email.")
+            send_email_alert()
+
+        st.session_state.last_wear_prediction = wear_prediction
     except Exception as e:
         st.error(f"Error during prediction: {e}")
+
     st.session_state.observed_count += 1
 
-# --- Metrics Cards ---
+# --- Metrics Display ---
 st.subheader("🔍 Summary")
 metric_col1, metric_col2, metric_col3 = st.columns(3)
 with metric_col1:
@@ -68,7 +100,7 @@ with metric_col2:
 with metric_col3:
     st.metric("Current Tool Wear Condition", f"**{st.session_state.current_wear_label}**")
 
-# --- Visualization Helper ---
+# --- Plot helper ---
 def plot_series(series, title, ylabel, color, marker):
     fig, ax = plt.subplots()
     ax.plot(series, color=color, marker=marker)
@@ -80,7 +112,7 @@ def plot_series(series, title, ylabel, color, marker):
     fig.tight_layout()
     return fig
 
-# --- 4-Box Visualization Layout ---
+# --- Feature Visualizations ---
 st.subheader("📊 Live Feature Visualizations")
 
 row1_col1, row1_col2 = st.columns(2)
