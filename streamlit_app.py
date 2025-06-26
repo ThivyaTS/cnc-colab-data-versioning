@@ -70,7 +70,7 @@ if "y1_cmd_series" not in st.session_state:
 # --- Email Alert Function ---
 def send_email_alert(subject="Tool Wear Alert", message="Tool condition has changed to WORN. Immediate maintenance is recommended."):
     EMAIL_ADDRESS = "m032410022@student.utem.edu.my"
-    EMAIL_PASSWORD = "******"  # Replace with your app password
+    EMAIL_PASSWORD = "Thanilparsad12???"  # Replace with your app password
     TO_EMAIL = "m032410022@student.utem.edu.my"
 
     msg = EmailMessage()
