@@ -6,14 +6,16 @@ import os
 import matplotlib.pyplot as plt
 import smtplib
 from email.message import EmailMessage
-
-import streamlit as st
 import base64
+from evidently.metrics import DataDriftPreset
+from evidently.report import Report
 
-def set_background(image_path, blur_px=6, overlay_opacity=0.4):
+# --- Page config and background ---
+st.set_page_config(layout="wide")
+
+def set_background(image_path, blur_px=6, overlay_opacity=0.7):
     with open(image_path, "rb") as image_file:
         encoded_image = base64.b64encode(image_file.read()).decode()
-
     background_style = f"""
     <style>
     .stApp {{
@@ -31,16 +33,14 @@ def set_background(image_path, blur_px=6, overlay_opacity=0.4):
     """
     st.markdown(background_style, unsafe_allow_html=True)
 
-# Call it once at the top of your Streamlit app
 set_background("image1.png", blur_px=6, overlay_opacity=0.7)
 
-
-
-# --- Load models and data ---
+# --- Load data & models ---
 live_data = pd.read_csv("live_data.csv")
+reference_data = pd.read_csv("reference_data.csv")
 xgb_model = joblib.load(os.path.join("models", "xgboost_model_v20250618_0759.pkl"))
 
-# --- Define expected features ---
+# --- Expected features ---
 EXPECTED_FEATURES = [
     "Y1_OutputCurrent", "X1_CommandPosition", "X1_ActualPosition", "clamp_pressure",
     "Y1_CommandPosition", "Y1_ActualPosition", "X1_OutputCurrent", "X1_DCBusVoltage",
@@ -49,19 +49,15 @@ EXPECTED_FEATURES = [
     "feedrate", "Y1_OutputPower", "S1_CurrentFeedback", "S1_ActualVelocity"
 ]
 
-# --- Streamlit App Header ---
-st.set_page_config(layout="wide")
-header_col1, header_col2 = st.columns([4, 1])
-with header_col1:
-    st.title("Tool Wear Monitoring Dashboard")
-with header_col2:
-    st.button("Next Observation")
-
 # --- Initialize session state ---
 if "observed_count" not in st.session_state:
     st.session_state.observed_count = 0
 if "current_wear_label" not in st.session_state:
     st.session_state.current_wear_label = "Unknown"
+if "last_wear_prediction" not in st.session_state:
+    st.session_state.last_wear_prediction = 0
+if "psi_score" not in st.session_state:
+    st.session_state.psi_score = 0.0
 if "feature_series" not in st.session_state:
     st.session_state.feature_series = []
 if "cmd_pos_series" not in st.session_state:
@@ -70,20 +66,18 @@ if "actual_pos_series" not in st.session_state:
     st.session_state.actual_pos_series = []
 if "y1_cmd_series" not in st.session_state:
     st.session_state.y1_cmd_series = []
-if "last_wear_prediction" not in st.session_state:
-    st.session_state.last_wear_prediction = 0  # Assume UNWORN initially
 
-# --- Email function ---
-def send_email_alert():
-    EMAIL_ADDRESS = "m032410022@student.utem.edu.my"  # Replace with your Outlook email
-    EMAIL_PASSWORD = "Thanilparsad12???"  # Use app password if MFA enabled
-    TO_EMAIL = "m032410022@student.utem.edu.my"  # Replace with maintenance recipient
+# --- Email alert function ---
+def send_email_alert(subject="Tool Wear Alert", message="Tool condition has changed to WORN. Immediate maintenance is recommended."):
+    EMAIL_ADDRESS = "m032410022@student.utem.edu.my"
+    EMAIL_PASSWORD = "******"  # Replace with your real password or app password
+    TO_EMAIL = "m032410022@student.utem.edu.my"
 
     msg = EmailMessage()
-    msg['Subject'] = "Tool Wear Alert - Maintenance Required"
+    msg['Subject'] = subject
     msg['From'] = EMAIL_ADDRESS
     msg['To'] = TO_EMAIL
-    msg.set_content("The tool condition has changed to WORN. Immediate maintenance is recommended.")
+    msg.set_content(message)
 
     try:
         with smtplib.SMTP("smtp.office365.com", 587) as smtp:
@@ -94,9 +88,27 @@ def send_email_alert():
     except Exception as e:
         st.error(f"Failed to send email: {e}")
 
-# --- Process incoming row ---
+# --- Drift detection ---
+def calculate_psi_drift(current_row_df):
+    try:
+        report = Report(metrics=[DataDriftPreset()])
+        report.run(reference_data=reference_data[EXPECTED_FEATURES], current_data=current_row_df[EXPECTED_FEATURES])
+        psi_score = report.as_dict()["metrics"][0]["result"]["dataset_drift_score"]
+        return psi_score
+    except Exception as e:
+        st.error(f"Drift calculation error: {e}")
+        return 0.0
+
+# --- Header ---
+header_col1, header_col2 = st.columns([4, 1])
+with header_col1:
+    st.title("Tool Wear Monitoring Dashboard")
+with header_col2:
+    st.button("Next Observation")
+
+# --- Process current observation ---
 if st.session_state.observed_count < len(live_data):
-    row = live_data.loc[st.session_state.observed_count]
+    row = live_data.iloc[st.session_state.observed_count]
     st.session_state.feature_series.append(row["X1_OutputCurrent"])
     st.session_state.cmd_pos_series.append(row["X1_CommandPosition"])
     st.session_state.actual_pos_series.append(row["X1_ActualPosition"])
@@ -108,26 +120,38 @@ if st.session_state.observed_count < len(live_data):
         wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
         st.session_state.current_wear_label = wear_label
 
-        # Trigger maintenance alert if tool becomes worn
+        # Maintenance alert
         if st.session_state.last_wear_prediction == 0 and wear_prediction == 1:
             st.warning("⚠️ Tool Condition Changed. Maintenance Alert. Sent Email.")
             send_email_alert()
 
         st.session_state.last_wear_prediction = wear_prediction
+
+        # Drift detection
+        current_row_df = row.to_frame().T
+        psi_score = calculate_psi_drift(current_row_df)
+        st.session_state.psi_score = psi_score
+
+        if psi_score > 0.5:
+            st.warning("⚠️ Data Drift Detected. Email Sent.")
+            send_email_alert(subject="Data Drift Alert", message="Drift detected in sensor input. Please investigate.")
+
     except Exception as e:
         st.error(f"Error during prediction: {e}")
 
     st.session_state.observed_count += 1
 
-# --- Metrics Display ---
+# --- Summary metrics ---
 st.subheader("🔍 Summary")
-metric_col1, metric_col2, metric_col3 = st.columns(3)
+metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 with metric_col1:
     st.metric("Number of Data Observed", f"{st.session_state.observed_count}")
 with metric_col2:
     st.metric("Total Number of Features", f"{len(EXPECTED_FEATURES)}")
 with metric_col3:
-    st.metric("Current Tool Wear Condition", f"{st.session_state.current_wear_label}")
+    st.metric("Tool Wear Condition", f"{st.session_state.current_wear_label}")
+with metric_col4:
+    st.metric("Data Drift (%)", f"{round(st.session_state.psi_score * 100, 2)}%")
 
 # --- Plot helper ---
 def plot_series(series, title, ylabel, color, marker):
@@ -141,48 +165,16 @@ def plot_series(series, title, ylabel, color, marker):
     fig.tight_layout()
     return fig
 
-# --- Feature Visualizations ---
+# --- Visualizations ---
 st.subheader("Live Feature Visualizations")
-
 row1_col1, row1_col2 = st.columns(2)
 row2_col1, row2_col2 = st.columns(2)
 
 with row1_col1:
-    fig1 = plot_series(
-        st.session_state.feature_series,
-        "X1 Output Current",
-        "X1_OutputCurrent",
-        "steelblue",
-        "o"
-    )
-    st.pyplot(fig1)
-
+    st.pyplot(plot_series(st.session_state.feature_series, "X1 Output Current", "X1_OutputCurrent", "steelblue", "o"))
 with row1_col2:
-    fig2 = plot_series(
-        st.session_state.cmd_pos_series,
-        "X1 Command Position",
-        "X1_CommandPosition",
-        "darkgreen",
-        "x"
-    )
-    st.pyplot(fig2)
-
+    st.pyplot(plot_series(st.session_state.cmd_pos_series, "X1 Command Position", "X1_CommandPosition", "darkgreen", "x"))
 with row2_col1:
-    fig3 = plot_series(
-        st.session_state.actual_pos_series,
-        "X1 Actual Position",
-        "X1_ActualPosition",
-        "crimson",
-        "s"
-    )
-    st.pyplot(fig3)
-
+    st.pyplot(plot_series(st.session_state.actual_pos_series, "X1 Actual Position", "X1_ActualPosition", "crimson", "s"))
 with row2_col2:
-    fig4 = plot_series(
-        st.session_state.y1_cmd_series,
-        "Y1 Command Position",
-        "Y1_CommandPosition",
-        "orange",
-        "^"
-    )
-    st.pyplot(fig4)
+    st.pyplot(plot_series(st.session_state.y1_cmd_series, "Y1 Command Position", "Y1_CommandPosition", "orange", "^"))
