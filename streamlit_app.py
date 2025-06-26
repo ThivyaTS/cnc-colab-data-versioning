@@ -2,14 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import time
 import os
 import matplotlib.pyplot as plt
 
 # --- Load models and data ---
 live_data = pd.read_csv("live_data.csv")
 
-if_model = joblib.load(os.path.join("models", "local_outlier_model_v20250623_0721.pkl"))
 xgb_model = joblib.load(os.path.join("models", "xgboost_model_v20250618_0759.pkl"))
 
 # --- Define expected features ---
@@ -48,12 +46,16 @@ with header_col2:
 # --- Initialize session state ---
 if "observed_count" not in st.session_state:
     st.session_state.observed_count = 0
-if "anomaly_data" not in st.session_state:
-    st.session_state.anomaly_data = pd.DataFrame(columns=live_data.columns)
 if "current_wear_label" not in st.session_state:
     st.session_state.current_wear_label = "Unknown"
 if "feature_series" not in st.session_state:
     st.session_state.feature_series = []
+if "cmd_pos_series" not in st.session_state:
+    st.session_state.cmd_pos_series = []
+if "actual_pos_series" not in st.session_state:
+    st.session_state.actual_pos_series = []
+if "y1_cmd_series" not in st.session_state:
+    st.session_state.y1_cmd_series = []
 
 # --- Dashboard Metrics ---
 st.subheader("🔍 Summary")
@@ -61,20 +63,56 @@ st.markdown(f"**Number of Data Observed:** {st.session_state.observed_count}")
 st.markdown(f"**Total Number of Features:** {len(EXPECTED_FEATURES)}")
 st.markdown(f"**Current Tool Wear Condition:** {st.session_state.current_wear_label}")
 
-# --- Anomaly Table ---
-st.subheader("⚠️ Anomaly Detected Rows")
-st.dataframe(st.session_state.anomaly_data.reset_index(drop=True), use_container_width=True)
-
-# --- Feature Visualization ---
+# --- Feature Visualization - X1_OutputCurrent ---
 st.subheader("📈 Feature Visualization - X1_OutputCurrent")
 if st.session_state.observed_count < len(live_data):
-    st.session_state.feature_series.append(live_data.loc[st.session_state.observed_count, "X1_OutputCurrent"])
+    row = live_data.loc[st.session_state.observed_count]
+    st.session_state.feature_series.append(row["X1_OutputCurrent"])
+    st.session_state.cmd_pos_series.append(row["X1_CommandPosition"])
+    st.session_state.actual_pos_series.append(row["X1_ActualPosition"])
+    st.session_state.y1_cmd_series.append(row["Y1_CommandPosition"])
+
 fig, ax = plt.subplots()
-ax.plot(st.session_state.feature_series, marker='o')
+ax.plot(st.session_state.feature_series, marker='o', color='steelblue')
 ax.set_xlabel("Observation")
 ax.set_ylabel("X1_OutputCurrent")
 ax.set_title("Live Update of X1_OutputCurrent")
 st.pyplot(fig)
+
+# --- Additional Visualizations ---
+st.subheader("📊 Position Comparisons")
+
+graph_col1, graph_col2, graph_col3 = st.columns(3)
+
+with graph_col1:
+    fig1, ax1 = plt.subplots()
+    ax1.plot(st.session_state.cmd_pos_series, color='darkgreen', marker='x')
+    ax1.set_title("X1 Command Position")
+    ax1.set_xlabel("Observation")
+    ax1.set_ylabel("X1_CommandPosition")
+    fig1.patch.set_edgecolor('black')
+    fig1.patch.set_linewidth(1.5)
+    st.pyplot(fig1)
+
+with graph_col2:
+    fig2, ax2 = plt.subplots()
+    ax2.plot(st.session_state.actual_pos_series, color='crimson', marker='s')
+    ax2.set_title("X1 Actual Position")
+    ax2.set_xlabel("Observation")
+    ax2.set_ylabel("X1_ActualPosition")
+    fig2.patch.set_edgecolor('black')
+    fig2.patch.set_linewidth(1.5)
+    st.pyplot(fig2)
+
+with graph_col3:
+    fig3, ax3 = plt.subplots()
+    ax3.plot(st.session_state.y1_cmd_series, color='orange', marker='^')
+    ax3.set_title("Y1 Command Position")
+    ax3.set_xlabel("Observation")
+    ax3.set_ylabel("Y1_CommandPosition")
+    fig3.patch.set_edgecolor('black')
+    fig3.patch.set_linewidth(1.5)
+    st.pyplot(fig3)
 
 # --- Process New Row ---
 if st.session_state.observed_count < len(live_data):
@@ -84,14 +122,7 @@ if st.session_state.observed_count < len(live_data):
     except KeyError as e:
         st.error(f"Missing expected feature(s): {e}")
     else:
-        # Predict Tool Wear
         wear_prediction = xgb_model.predict(input_features)[0]
         wear_label = "🟥 WORN" if wear_prediction == 1 else "🟩 UNWORN"
         st.session_state.current_wear_label = wear_label
-
-        # Anomaly Detection
-        anomaly_result = if_model.predict(input_features)[0]
-        if anomaly_result == -1:
-            st.session_state.anomaly_data = pd.concat([st.session_state.anomaly_data, row], ignore_index=True)
-
         st.session_state.observed_count += 1
