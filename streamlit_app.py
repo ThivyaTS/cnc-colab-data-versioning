@@ -7,41 +7,33 @@ import matplotlib.pyplot as plt
 import smtplib
 from email.message import EmailMessage
 
-from PIL import Image
+import streamlit as st
 import base64
 
 def set_background(image_path, blur_px=6, overlay_opacity=0.4):
-    with open(image_path, "rb") as file:
-        encoded_image = base64.b64encode(file.read()).decode()
+    with open(image_path, "rb") as image_file:
+        encoded_image = base64.b64encode(image_file.read()).decode()
 
-    custom_css = f"""
+    background_style = f"""
     <style>
     .stApp {{
-        position: relative;
-        background-image: url("data:image/jpg;base64,{encoded_image}");
+        background: linear-gradient(
+            rgba(0, 0, 0, {overlay_opacity}),
+            rgba(0, 0, 0, {overlay_opacity})
+        ), url("data:image/jpg;base64,{encoded_image}");
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
-    }}
-
-    .stApp::before {{
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: rgba(0, 0, 0, {overlay_opacity});
         backdrop-filter: blur({blur_px}px);
         -webkit-backdrop-filter: blur({blur_px}px);
-        z-index: -1;
     }}
     </style>
     """
-    st.markdown(custom_css, unsafe_allow_html=True)
+    st.markdown(background_style, unsafe_allow_html=True)
 
-# Call the function at the top of your app
-set_background("image1.png", blur_px=6, overlay_opacity=0.4)
+# Call it once at the top of your Streamlit app
+set_background("image1.jpg", blur_px=6, overlay_opacity=0.4)
+
 
 
 # --- Load models and data ---
