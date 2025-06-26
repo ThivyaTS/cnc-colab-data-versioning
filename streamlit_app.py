@@ -46,9 +46,9 @@ if "last_wear_prediction" not in st.session_state:
 
 # --- Email function ---
 def send_email_alert():
-    EMAIL_ADDRESS = "your_outlook_email@example.com"  # Replace with your Outlook email
-    EMAIL_PASSWORD = "your_password_or_app_password"  # Use app password if MFA enabled
-    TO_EMAIL = "recipient@example.com"  # Replace with maintenance recipient
+    EMAIL_ADDRESS = "m032410022@student.utem.edu.my"  # Replace with your Outlook email
+    EMAIL_PASSWORD = "Thanilparsad12???"  # Use app password if MFA enabled
+    TO_EMAIL = "m032410022@student.utem.edu.my"  # Replace with maintenance recipient
 
     msg = EmailMessage()
     msg['Subject'] = "Tool Wear Alert - Maintenance Required"
