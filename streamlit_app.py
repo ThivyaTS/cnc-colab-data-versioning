@@ -32,7 +32,7 @@ def set_background(image_path, blur_px=6, overlay_opacity=0.4):
     st.markdown(background_style, unsafe_allow_html=True)
 
 # Call it once at the top of your Streamlit app
-set_background("image1.jpg", blur_px=6, overlay_opacity=0.4)
+set_background("image1.png", blur_px=6, overlay_opacity=0.4)
 
 
 
