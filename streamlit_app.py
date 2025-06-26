@@ -53,9 +53,9 @@ EXPECTED_FEATURES = [
 st.set_page_config(layout="wide")
 header_col1, header_col2 = st.columns([4, 1])
 with header_col1:
-    st.title("🛠️ Tool Wear Monitoring Dashboard")
+    st.title("Tool Wear Monitoring Dashboard")
 with header_col2:
-    st.button("🔁 Next Observation")
+    st.button("Next Observation")
 
 # --- Initialize session state ---
 if "observed_count" not in st.session_state:
@@ -123,11 +123,11 @@ if st.session_state.observed_count < len(live_data):
 st.subheader("🔍 Summary")
 metric_col1, metric_col2, metric_col3 = st.columns(3)
 with metric_col1:
-    st.metric("Number of Data Observed", f"**{st.session_state.observed_count}**")
+    st.metric("Number of Data Observed", f"{st.session_state.observed_count}")
 with metric_col2:
-    st.metric("Total Number of Features", f"**{len(EXPECTED_FEATURES)}**")
+    st.metric("Total Number of Features", f"{len(EXPECTED_FEATURES)}")
 with metric_col3:
-    st.metric("Current Tool Wear Condition", f"**{st.session_state.current_wear_label}**")
+    st.metric("Current Tool Wear Condition", f"{st.session_state.current_wear_label}")
 
 # --- Plot helper ---
 def plot_series(series, title, ylabel, color, marker):
@@ -142,7 +142,7 @@ def plot_series(series, title, ylabel, color, marker):
     return fig
 
 # --- Feature Visualizations ---
-st.subheader("📊 Live Feature Visualizations")
+st.subheader("Live Feature Visualizations")
 
 row1_col1, row1_col2 = st.columns(2)
 row2_col1, row2_col2 = st.columns(2)
