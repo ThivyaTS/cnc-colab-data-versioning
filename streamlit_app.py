@@ -35,7 +35,7 @@ set_background("image1.png", blur_px=6, overlay_opacity=0.7)
 
 # --- Load data & models ---
 live_data = pd.read_csv("live_data.csv")
-reference_data = pd.read_csv("reference_data.csv")
+reference_data = pd.read_csv("df_reference.csv")
 xgb_model = joblib.load(os.path.join("models", "xgboost_model_v20250618_0759.pkl"))
 
 # --- Expected features ---
