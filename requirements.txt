@@ -5,4 +5,4 @@ scikit-learn
 xgboost
 joblib
 matplotlib
-evidently
+data-drift-detector
